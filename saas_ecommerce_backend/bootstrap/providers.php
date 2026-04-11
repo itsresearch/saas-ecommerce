@@ -1,9 +1,9 @@
 <?php
 
 use App\Providers\AppServiceProvider;
-use App\Providers\TenncyServiceProvider;
+use App\Providers\TenancyServiceProvider;
 
 return [
     AppServiceProvider::class,
-    TenncyServiceProvider::class,
+    TenancyServiceProvider::class,
 ];

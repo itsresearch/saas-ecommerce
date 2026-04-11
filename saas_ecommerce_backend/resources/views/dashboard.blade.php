@@ -1,17 +1,23 @@
-<x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ __('Dashboard') }}
-        </h2>
-    </x-slot>
+@extends('layout.app')
 
-    <div class="py-12">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
-                <div class="p-6 text-gray-900">
-                    {{ __("You're logged in!") }}
+@section('title')
+    <title>SaaS Commerce Admin | Dashboard</title>
+@endsection
+
+@section('content')
+    <div class="pc-content-header">
+        <div class="pc-head-title">
+            <h2 class="mb-0">Dashboard</h2>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <p class="mb-0 text-muted">{{ __("You're logged in!") }}</p>
                 </div>
             </div>
         </div>
     </div>
-</x-app-layout>
+@endsection
