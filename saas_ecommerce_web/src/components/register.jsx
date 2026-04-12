@@ -2,23 +2,27 @@ import { useState } from "react";
 import axios from "axios";
 import { FaEnvelope, FaKey, FaGlobe, FaUser, FaBuilding } from "react-icons/fa";
 
-const StepEmail = ({ formData, setFormData, nextStep, setOtpVerified }) => {
+const StepEmail = ({ formData, setFormData, nextStep, setOtpVerified, isLoading, setIsLoading }) => {
   const sendOTP = async () => {
+    if (isLoading) return;
     const email = (formData.email || "").trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       alert("Please enter a valid email address.");
       return;
     }
+    setIsLoading(true);
     try {
       const response = await axios.post(
-        "/api/auth/email-otp/send",
+        "/api/business/onboarding/email",
         { email },
         {
           headers: { "Content-Type": "application/json" },
         },
       );
-      if (response.status === 200) {
+      if (response.status === 201) {
+        const onboarding_token = response?.data?.token || response?.data?.onboarding_token || "";
+        setFormData((prev) => ({ ...prev, onboarding_token }));
         alert("OTP sent successfully!");
         nextStep();
       } else {
@@ -27,6 +31,8 @@ const StepEmail = ({ formData, setFormData, nextStep, setOtpVerified }) => {
     } catch (error) {
       console.error("Error sending OTP:", error);
       alert("An error occurred while sending the OTP. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -57,32 +63,54 @@ const StepEmail = ({ formData, setFormData, nextStep, setOtpVerified }) => {
       />
       <button
         type="button"
-        className="mt-2 inline-flex w-full items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+        disabled={isLoading}
+        className="mt-2 inline-flex w-full items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
         onClick={sendOTP}
       >
-        Send Verification Code
+        {isLoading ? "Sending..." : "Send Verification Code"}
       </button>
     </div>
   );
 };
 
-const StepOTP = ({ formData, setFormData, nextStep, prevStep, setOtpVerified }) => {
+const StepOTP = ({ formData, setFormData, nextStep, prevStep, setOtpVerified, isLoading, setIsLoading }) => {
   const verifyOTP = async () => {
-    const email = (formData.email || "").trim();
+    if (isLoading) return;
+    const onboarding_token = formData.onboarding_token || "";
     const otp = (formData.otp || "").trim();
+
+    // Debug logging
+    console.log("OTP Verification Debug:", {
+      otp,
+      otp_length: otp.length,
+      onboarding_token: onboarding_token ? "Present" : "Missing",
+      email: formData.email,
+    });
+
+    if (!onboarding_token) {
+      alert("Session expired. Please verify your email again.");
+      prevStep();
+      return;
+    }
+
     if (otp.length !== 6) {
       alert("Please enter the 6-digit code.");
       return;
     }
+    setIsLoading(true);
     try {
+      const payload = {
+        onboarding_token,
+        verification_code: otp,  // API expects 'code' not 'otp'
+      };
       const response = await axios.post(
-        "/api/auth/email-otp/verify",
-        { email, otp },
+        "/api/business/onboarding/email/verify",
+        payload,
         {
           headers: { "Content-Type": "application/json" },
         },
       );
-      if (response.status === 200) {
+      if (response.status === 200 || response.status === 201) {
         setOtpVerified(true);
         alert("OTP verified successfully!");
         nextStep();
@@ -91,7 +119,23 @@ const StepOTP = ({ formData, setFormData, nextStep, prevStep, setOtpVerified }) 
       }
     } catch (error) {
       console.error("Error verifying OTP:", error);
-      alert("An error occurred while verifying the OTP. Please try again.");
+      console.error("Response status:", error?.response?.status);
+      console.error("Response data:", error?.response?.data);
+
+      const errorMessage = error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.response?.data?.errors ||
+        "An error occurred while verifying the OTP. Please try again.";
+
+      // Show detailed error for 422
+      if (error?.response?.status === 422) {
+        console.error("Validation errors:", errorMessage);
+        alert(`Validation Error: ${JSON.stringify(errorMessage)}`);
+      } else {
+        alert(errorMessage);
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -148,248 +192,403 @@ const StepOTP = ({ formData, setFormData, nextStep, prevStep, setOtpVerified }) 
         </button>
         <button
           type="button"
-          className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          disabled={isLoading}
+          className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={verifyOTP}
         >
-          Verify OTP
+          {isLoading ? "Verifying..." : "Verify OTP"}
         </button>
       </div>
     </div>
   );
 };
 
-const StepSubdomain = ({ formData, setFormData, nextStep, prevStep }) => (
-  <div className="space-y-3">
-    <h2 className="text-2xl font-semibold text-slate-900">Choose your subdomain</h2>
-    <label htmlFor="subdomain" className="block text-sm font-medium text-slate-700">
-      Subdomain
-    </label>
-    <input
-      type="text"
-      id="subdomain"
-      name="subdomain"
-      placeholder="yourstore"
-      className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-      value={formData.subdomain}
-      onChange={(e) => setFormData({ ...formData, subdomain: e.target.value })}
-      required
-    />
-    <div className="flex justify-between pt-2">
-      <button
-        type="button"
-        className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        onClick={prevStep}
-      >
-        Back
-      </button>
-      <button
-        type="button"
-        className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-        onClick={nextStep}
-      >
-        Next
-      </button>
+const StepSubdomain = ({ formData, setFormData, nextStep, prevStep, isLoading, setIsLoading }) => {
+  const submitSubdomain = async () => {
+    if (isLoading) return;
+
+    const subdomain = (formData.subdomain || "").trim();
+    const onboarding_token = formData.onboarding_token || "";
+
+    if (!subdomain) {
+      alert("Please enter a subdomain.");
+      return;
+    }
+
+    if (!onboarding_token) {
+      alert("Session expired. Please start over.");
+      prevStep();
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const payload = {
+        onboarding_token,
+        subdomain,
+      };
+
+      console.log("Setting subdomain with payload:", payload);
+
+      const response = await axios.post(
+        "/api/business/onboarding/subdomain",
+        payload,
+        {
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+
+      if (response.status === 200 || response.status === 201) {
+        alert("Subdomain reserved successfully!");
+        nextStep();
+      } else {
+        alert("Failed to set subdomain. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error setting subdomain:", error);
+      const errorMessage = error?.response?.data?.message || "Failed to set subdomain.";
+      alert(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-2xl font-semibold text-slate-900">Choose your subdomain</h2>
+      <label htmlFor="subdomain" className="block text-sm font-medium text-slate-700">
+        Subdomain
+      </label>
+      <input
+        type="text"
+        id="subdomain"
+        name="subdomain"
+        placeholder="yourstore"
+        className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+        value={formData.subdomain}
+        onChange={(e) => setFormData({ ...formData, subdomain: e.target.value })}
+        required
+      />
+      <div className="flex justify-between pt-2">
+        <button
+          type="button"
+          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          onClick={prevStep}
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          disabled={isLoading}
+          className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={submitSubdomain}
+        >
+          {isLoading ? "Reserving..." : "Next"}
+        </button>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
-const StepPersonalDetails = ({ formData, setFormData, nextStep, prevStep }) => (
-  <div className="space-y-3">
-    <h2 className="text-2xl font-semibold text-slate-900">Personal details</h2>
-    <label htmlFor="name" className="block text-sm font-medium text-slate-700">
-      Full name
-    </label>
-    <input
-      type="text"
-      id="name"
-      name="name"
-      placeholder="John Doe"
-      className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-      value={formData.name}
-      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-      required
-    />
-    <label htmlFor="phone" className="block pt-2 text-sm font-medium text-slate-700">
-      Phone number
-    </label>
-    <input
-      type="tel"
-      id="phone"
-      name="phone"
-      placeholder="123-456-7890"
-      className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-      value={formData.phone}
-      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-      required
-    />
-    <label htmlFor="phone" className="block pt-2 text-sm font-medium text-slate-700">
-      Address
-    </label>
-    <input
-      type="tel"
-      id="address"
-      name="address"
-      placeholder="123 Main St"
-      className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-      value={formData.address}
-      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-      required
-    />
-    <label htmlFor="password" className="block pt-2 text-sm font-medium text-slate-700">
-      Password
-    </label>
-    <input
-      type="password"
-      id="password"
-      name="password"
-      placeholder="Enter password"
-      className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-      value={formData.password}
-      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-      required
-    />
-    <label htmlFor="passwordConfirmation" className="block pt-2 text-sm font-medium text-slate-700">
-      Confirm password
-    </label>
-    <input
-      type="password"
-      id="passwordConfirmation"
-      name="passwordConfirmation"
-      placeholder="Confirm password"
-      className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-      value={formData.passwordConfirmation}
-      onChange={(e) => setFormData({ ...formData, passwordConfirmation: e.target.value })}
-      required
-    />
-    <div className="flex justify-between pt-2">
-      <button
-        type="button"
-        className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        onClick={prevStep}
-      >
-        Back
-      </button>
-      <button
-        type="button"
-        className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-        onClick={nextStep}
-      >
-        Next
-      </button>
+const StepPersonalDetails = ({ formData, setFormData, nextStep, prevStep, isLoading, setIsLoading }) => {
+  const submitPersonalDetails = async () => {
+    if (isLoading) return;
+
+    const onboarding_token = formData.onboarding_token || "";
+    const name = (formData.name || "").trim();
+    const phone = (formData.phone || "").trim();
+    const address = (formData.address || "").trim();
+    const password = formData.password || "";
+    const passwordConfirmation = formData.passwordConfirmation || "";
+
+    if (!name || !phone || !address) {
+      alert("Please fill in all fields.");
+      return;
+    }
+
+    if (password.length < 6) {
+      alert("Password must be at least 6 characters.");
+      return;
+    }
+
+    if (password !== passwordConfirmation) {
+      alert("Passwords do not match.");
+      return;
+    }
+
+    if (!onboarding_token) {
+      alert("Session expired. Please start over.");
+      prevStep();
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Split name into first and last name
+      const nameParts = name.split(" ");
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(" ") || firstName;
+
+      const payload = {
+        onboarding_token,
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+        password,
+        password_confirmation: passwordConfirmation,
+      };
+
+      console.log("Setting personal details with payload:", payload);
+
+      const response = await axios.post(
+        "/api/business/onboarding/personal",
+        payload,
+        {
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+
+      if (response.status === 200 || response.status === 201) {
+        alert("Personal details saved successfully!");
+        nextStep();
+      } else {
+        alert("Failed to save personal details. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error saving personal details:", error);
+      const errorMessage = error?.response?.data?.message || "Failed to save personal details.";
+      alert(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-2xl font-semibold text-slate-900">Personal details</h2>
+      <label htmlFor="name" className="block text-sm font-medium text-slate-700">
+        Full name
+      </label>
+      <input
+        type="text"
+        id="name"
+        name="name"
+        placeholder="John Doe"
+        className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+        value={formData.name}
+        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+        required
+      />
+      <label htmlFor="phone" className="block pt-2 text-sm font-medium text-slate-700">
+        Phone number
+      </label>
+      <input
+        type="tel"
+        id="phone"
+        name="phone"
+        placeholder="123-456-7890"
+        className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+        value={formData.phone}
+        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+        required
+      />
+      <label htmlFor="address" className="block pt-2 text-sm font-medium text-slate-700">
+        Address
+      </label>
+      <input
+        type="text"
+        id="address"
+        name="address"
+        placeholder="123 Main St"
+        className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+        value={formData.address}
+        onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+        required
+      />
+      <label htmlFor="password" className="block pt-2 text-sm font-medium text-slate-700">
+        Password
+      </label>
+      <input
+        type="password"
+        id="password"
+        name="password"
+        placeholder="Enter password"
+        className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+        value={formData.password}
+        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+        required
+      />
+      <label htmlFor="passwordConfirmation" className="block pt-2 text-sm font-medium text-slate-700">
+        Confirm password
+      </label>
+      <input
+        type="password"
+        id="passwordConfirmation"
+        name="passwordConfirmation"
+        placeholder="Confirm password"
+        className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+        value={formData.passwordConfirmation}
+        onChange={(e) => setFormData({ ...formData, passwordConfirmation: e.target.value })}
+        required
+      />
+      <div className="flex justify-between pt-2">
+        <button
+          type="button"
+          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          onClick={prevStep}
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          disabled={isLoading}
+          className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={submitPersonalDetails}
+        >
+          {isLoading ? "Saving..." : "Next"}
+        </button>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
-const StepBusinessInfo = ({ formData, setFormData, prevStep }) => (
-  <div className="space-y-3">
-    <h2 className="text-2xl font-semibold text-slate-900">Business info</h2>
-    <label
-      htmlFor="businessName"
-      className="block text-sm font-medium text-slate-700"
-    >
-      Business name
-    </label>
-    <input
-      type="text"
-      id="businessName"
-      name="businessName"
-      placeholder="Your Business Name"
-      className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-      value={formData.businessName}
-      onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
-      required
-    />
-    <label
-      htmlFor="businessRegistrationNumber"
-      className="block pt-2 text-sm font-medium text-slate-700"
-    >
-      Business registration number
-    </label>
-    <input
-      type="text"
-      id="businessRegistrationNumber"
-      name="businessRegistrationNumber"
-      placeholder="REG-1001"
-      className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-      value={formData.businessRegistrationNumber}
-      onChange={(e) => setFormData({ ...formData, businessRegistrationNumber: e.target.value })}
-      required
-    />
-    <label
-      htmlFor="businessType"
-      className="block pt-2 text-sm font-medium text-slate-700"
-    >
-      Business Address
-    </label>
-    <input
-      type="text"
-      id="businessAddress"
-      name="businessAddress"
-      placeholder="123 Business St"
-      className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-      value={formData.businessAddress}
-      onChange={(e) => setFormData({ ...formData, businessAddress: e.target.value })}
-      required
-    />
-    <label
-      htmlFor="businessType"
-      className="block pt-2 text-sm font-medium text-slate-700"
-    >
-      Business Phone Number
-    </label>
-    <input
-      type="tel"
-      id="businessPhone"
-      name="businessPhone"
-      placeholder="e.g., (123) 456-7890"
-      className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-      value={formData.businessPhone}
-      onChange={(e) => setFormData({ ...formData, businessPhone: e.target.value })}
-      required
-    />
-    <label
-      htmlFor="businessEmail"
-      className="block pt-2 text-sm font-medium text-slate-700"
-    >
-      Business email
-    </label>
-    <input
-      type="email"
-      id="businessEmail"
-      name="businessEmail"
-      placeholder="shop@example.com"
-      className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
-      value={formData.businessEmail}
-      onChange={(e) => setFormData({ ...formData, businessEmail: e.target.value })}
-      required
-    />
+const StepBusinessInfo = ({ formData, setFormData, prevStep, isLoading, setIsLoading, onRegistrationComplete }) => {
+  const submitBusinessInfo = async () => {
+    if (isLoading) return;
 
+    const onboarding_token = formData.onboarding_token || "";
+    const businessName = (formData.businessName || "").trim();
+    const businessAddress = (formData.businessAddress || "").trim();
+    const registrationNumber = (formData.businessRegistrationNumber || "").trim();
 
-    <div className="flex justify-between pt-2">
-      <button
-        type="button"
-        className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        onClick={prevStep}
+    if (!businessName || !businessAddress || !registrationNumber) {
+      alert("Please fill in all business fields.");
+      return;
+    }
+
+    if (!onboarding_token) {
+      alert("Session expired. Please start over.");
+      prevStep();
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const payload = {
+        onboarding_token,
+        business_name: businessName,
+        address: businessAddress,
+        registration_number: registrationNumber,
+      };
+
+      console.log("Completing business registration with payload:", payload);
+
+      const response = await axios.post(
+        "/api/business/onboarding/complete",
+        payload,
+        {
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+
+      if (response.status === 200 || response.status === 201) {
+        alert("Business registered successfully!");
+        console.log("Registration response:", response.data);
+        if (onRegistrationComplete) {
+          onRegistrationComplete(response.data);
+        }
+      } else {
+        alert("Registration completed but unexpected response received.");
+      }
+    } catch (error) {
+      console.error("Error completing registration:", error);
+      const errorMessage = error?.response?.data?.message || "Failed to complete registration.";
+      alert(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-2xl font-semibold text-slate-900">Business info</h2>
+      <label
+        htmlFor="businessName"
+        className="block text-sm font-medium text-slate-700"
       >
-        Back
-      </button>
-      <button
-        type="submit"
-        className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+        Business name
+      </label>
+      <input
+        type="text"
+        id="businessName"
+        name="businessName"
+        placeholder="Your Business Name"
+        className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+        value={formData.businessName}
+        onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+        required
+      />
+      <label
+        htmlFor="businessRegistrationNumber"
+        className="block pt-2 text-sm font-medium text-slate-700"
       >
-        Submit
-      </button>
+        Business registration number
+      </label>
+      <input
+        type="text"
+        id="businessRegistrationNumber"
+        name="businessRegistrationNumber"
+        placeholder="REG-1001"
+        className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+        value={formData.businessRegistrationNumber}
+        onChange={(e) => setFormData({ ...formData, businessRegistrationNumber: e.target.value })}
+        required
+      />
+      <label
+        htmlFor="businessAddress"
+        className="block pt-2 text-sm font-medium text-slate-700"
+      >
+        Business Address
+      </label>
+      <input
+        type="text"
+        id="businessAddress"
+        name="businessAddress"
+        placeholder="123 Business St"
+        className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:ring-4 focus:ring-slate-100"
+        value={formData.businessAddress}
+        onChange={(e) => setFormData({ ...formData, businessAddress: e.target.value })}
+        required
+      />
+
+      <div className="flex justify-between pt-2">
+        <button
+          type="button"
+          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          onClick={prevStep}
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          disabled={isLoading}
+          onClick={submitBusinessInfo}
+          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isLoading ? "Submitting..." : "Submit"}
+        </button>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const StepIndicator = ({ currentStep, totalSteps }) => {
   const steps = [
-    { icon: <FaEnvelope />},
-    { icon: <FaKey />},
-    { icon: <FaGlobe /> },
-    { icon: <FaUser /> },
-    { icon: <FaBuilding /> },
+    { icon: <FaEnvelope />, label: "Email" },
+    { icon: <FaKey />, label: "Verify" },
+    { icon: <FaGlobe />, label: "Subdomain" },
+    { icon: <FaUser />, label: "Personal" },
+    { icon: <FaBuilding />, label: "Business" },
   ];
 
   return (
@@ -417,9 +616,12 @@ const StepIndicator = ({ currentStep, totalSteps }) => {
 const Register = () => {
   const [step, setStep] = useState(1);
   const [otpVerified, setOtpVerified] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [authToken, setAuthToken] = useState(null);
   const [formData, setFormData] = useState({
     email: "",
     otp: "",
+    onboarding_token: "",
     subdomain: "",
     name: "",
     phone: "",
@@ -437,79 +639,21 @@ const Register = () => {
   const nextStep = () => setStep((prev) => prev + 1);
   const prevStep = () => setStep((prev) => prev - 1);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!otpVerified) {
-      alert("Please verify your OTP before registering.");
-      setStep(2);
-      return;
-    }
-
-    if (formData.password !== formData.passwordConfirmation) {
-      alert("Password and confirmation do not match.");
-      return;
-    }
-
-    try {
-      const registerPayload = {
-        full_name: formData.name,
-        email: formData.email,
-        address: formData.address,
-        phone_no: formData.phone,
-        password: formData.password,
-        password_confirmation: formData.passwordConfirmation,
-        device_name: formData.deviceName || "friend-laptop",
-      };
-
-      const registerResponse = await axios.post('/api/auth/register', registerPayload);
-
-      const token =
-        registerResponse?.data?.data?.token ||
-        registerResponse?.data?.token ||
-        registerResponse?.data?.access_token;
-
-      const businessPayload = {
-        business_name: formData.businessName,
-        desired_url_name: formData.subdomain,
-        business_location: formData.businessAddress,
-        business_registration_number: formData.businessRegistrationNumber,
-        business_email: formData.businessEmail,
-        business_phone: formData.businessPhone,
-      };
-
-      const businessHeaders = token
-        ? { Authorization: `Bearer ${token}` }
-        : undefined;
-
-      await axios.post('/api/businesses', businessPayload, {
-        headers: businessHeaders,
-      });
-
-      if (registerResponse.status === 200 || registerResponse.status === 201) {
-        alert('Account and business created successfully!');
-      } else {
-        alert('Registration completed, but unexpected response received.');
-      }
-    } catch (error) {
-      console.error('Error during registration:', error);
-      const errorMessage =
-        error?.response?.data?.message ||
-        error?.response?.data?.error ||
-        'An error occurred during registration. Please try again.';
-      alert(errorMessage);
-    }
+  const handleRegistrationComplete = (data) => {
+    console.log("Registration completed successfully!", data);
+    // You can redirect or show success message here
+    // window.location.href = data.redirect_url;
   };
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-md mx-auto mt-10 p-6 bg-white shadow-md rounded-md">
+    <div className="max-w-md mx-auto mt-10 p-6 bg-white shadow-md rounded-md">
       <StepIndicator currentStep={step} totalSteps={5} />
-      {step === 1 && <StepEmail formData={formData} setFormData={setFormData} nextStep={nextStep} setOtpVerified={setOtpVerified} />}
-      {step === 2 && <StepOTP formData={formData} setFormData={setFormData} nextStep={nextStep} prevStep={prevStep} setOtpVerified={setOtpVerified} />}
-      {step === 3 && <StepSubdomain formData={formData} setFormData={setFormData} nextStep={nextStep} prevStep={prevStep} />}
-      {step === 4 && <StepPersonalDetails formData={formData} setFormData={setFormData} nextStep={nextStep} prevStep={prevStep} />}
-      {step === 5 && <StepBusinessInfo formData={formData} setFormData={setFormData} prevStep={prevStep} />}
-    </form>
+      {step === 1 && <StepEmail formData={formData} setFormData={setFormData} nextStep={nextStep} setOtpVerified={setOtpVerified} isLoading={isLoading} setIsLoading={setIsLoading} />}
+      {step === 2 && <StepOTP formData={formData} setFormData={setFormData} nextStep={nextStep} prevStep={prevStep} setOtpVerified={setOtpVerified} isLoading={isLoading} setIsLoading={setIsLoading} />}
+      {step === 3 && <StepSubdomain formData={formData} setFormData={setFormData} nextStep={nextStep} prevStep={prevStep} isLoading={isLoading} setIsLoading={setIsLoading} />}
+      {step === 4 && <StepPersonalDetails formData={formData} setFormData={setFormData} nextStep={nextStep} prevStep={prevStep} isLoading={isLoading} setIsLoading={setIsLoading} />}
+      {step === 5 && <StepBusinessInfo formData={formData} setFormData={setFormData} prevStep={prevStep} isLoading={isLoading} setIsLoading={setIsLoading} onRegistrationComplete={handleRegistrationComplete} />}
+    </div>
   );
 };
 
